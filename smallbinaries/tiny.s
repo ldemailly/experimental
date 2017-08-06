@@ -42,7 +42,7 @@ _start:
                 mov	ebx,1		; file descriptor (stdout)
                 mov	eax,4		; system call number (sys_write)
                 int	0x80		; call kernel
-; exit(0) implementation:
+; exit(42) implementation:
                 mov     bl, 42 ; ret code, only lower part of word is used
                 xor     eax, eax
                 inc     eax ; 0->1 == exit

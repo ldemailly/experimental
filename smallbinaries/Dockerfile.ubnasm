@@ -1,0 +1,5 @@
+FROM ubuntu:xenial
+# Adding libc6-dev makes the syscall binary 968 bytes but hello jumps to 840k!
+RUN apt-get update && apt-get install -y nasm gcc libc6-dev make
+WORKDIR /exp
+COPY . .
