@@ -10,4 +10,4 @@ And adapted and enhanced the example to create the tiniest image that does somet
 
 For the gory details, see [Makefile](Makefile) and compare the resulting `tiny`, 126 bytes (coming from [tiny.s](tiny.s)) vs `hello` (coming from [hello.c](hello.c)) 5520 bytes.
 
-Source of this file:
+If you see this on docker hub, the source of this file with working links is https://github.com/ldemailly/experimental/blob/master/smallbinaries/README.md
