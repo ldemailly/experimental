@@ -1,45 +1,42 @@
 #include <dlfcn.h>
-#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <fcntl.h>
 #include <errno.h>
 #include <string.h>
-#include "filemonitor.h"
-
-#ifdef __APPLE__
-#include <sys/event.h>
-#elif defined(__linux__)
-#include <sys/inotify.h>
-#endif
 
 #define LIB_NAME "./libezreload.so"
-#define SLEEP_US 100000 // 100ms
 #define MAX_RETRIES 5
 #define RETRY_DELAY_US 200000 // 200ms
 
 // Function pointer type for doWork
 typedef void (*doWork_t)(void);
 
-// Library state structure
-struct lib_state {
-    void *handle;
-    doWork_t doWork;
-    int ref_count;
-    pthread_mutex_t mutex;
-    pthread_cond_t cond;
-};
-
 // Global variables
-struct lib_state lib = {
-    .handle = NULL,
-    .doWork = NULL,
-    .ref_count = 0,
-    .mutex = PTHREAD_MUTEX_INITIALIZER,
-    .cond = PTHREAD_COND_INITIALIZER
-};
+void *handle = NULL;
+doWork_t doWork = NULL;
+
+// Function to check if file has changed
+int check_file_changed(const char *filename, time_t *last_modified) {
+    struct stat st;
+    if (stat(filename, &st) != 0) {
+        printf("Failed to stat %s: %s\n", filename, strerror(errno));
+        return 0;
+    }
+
+    if (*last_modified == 0) {
+        *last_modified = st.st_mtime;
+        return 0;
+    }
+
+    if (st.st_mtime != *last_modified) {
+        *last_modified = st.st_mtime;
+        return 1;
+    }
+
+    return 0;
+}
 
 // Function to load the library
 void *load_library(void) {
@@ -87,38 +84,13 @@ void *load_library(void) {
     return NULL;
 }
 
-// Function to acquire library reference
-void acquire_lib(void) {
-    pthread_mutex_lock(&lib.mutex);
-    lib.ref_count++;
-    pthread_mutex_unlock(&lib.mutex);
-}
-
-// Function to release library reference
-void release_lib(void) {
-    pthread_mutex_lock(&lib.mutex);
-    lib.ref_count--;
-    if (lib.ref_count == 0) {
-        pthread_cond_signal(&lib.cond);
-    }
-    pthread_mutex_unlock(&lib.mutex);
-}
-
 // Function to reload the library
 void reload_library(void) {
     void *new_handle;
     doWork_t new_doWork;
     int *lib_version;
 
-    printf("\nLibrary file changed, reloading...\n");
-
-    // Wait for all library operations to complete
-    pthread_mutex_lock(&lib.mutex);
-    while (lib.ref_count > 0) {
-        printf("Waiting for %d library operations to complete...\n", lib.ref_count);
-        pthread_cond_wait(&lib.cond, &lib.mutex);
-    }
-    pthread_mutex_unlock(&lib.mutex);
+    printf("Library file changed, reloading...\n");
 
     // Load the new library
     new_handle = load_library();
@@ -138,14 +110,11 @@ void reload_library(void) {
     }
 
     // Store old handle for cleanup
-    void *old_handle = lib.handle;
+    void *old_handle = handle;
 
-    // Update the library state
-    pthread_mutex_lock(&lib.mutex);
-    lib.handle = new_handle;
-    lib.doWork = new_doWork;
-    pthread_mutex_unlock(&lib.mutex);
-
+    // Update the global variables
+    handle = new_handle;
+    doWork = new_doWork;
     printf("Library reloaded successfully, new version: %d\n", *lib_version);
 
     // Close the old library
@@ -157,66 +126,42 @@ void reload_library(void) {
     }
 }
 
-// Callback for file changes
-void on_file_change(const char *filename, void *user_data) {
-    (void)user_data;  // Silence unused parameter warning
-    printf("File change detected: %s\n", filename);
-    reload_library();
-}
-
 int main(void) {
-    pthread_t monitor_thread;
-    struct monitor_args args = {
-        .filename = LIB_NAME,
-        .callback = on_file_change,
-        .user_data = NULL
-    };
+    time_t last_modified = 0;
 
     // Initial library load
-    lib.handle = load_library();
-    if (!lib.handle) {
+    handle = load_library();
+    if (!handle) {
         fprintf(stderr, "Failed to load library: %s\n", dlerror());
         return 1;
     }
 
     // Get initial function pointer and version
-    lib.doWork = (doWork_t)dlsym(lib.handle, "doWork");
-    int *lib_version = (int *)dlsym(lib.handle, "version");
-    if (!lib.doWork || !lib_version) {
+    doWork = (doWork_t)dlsym(handle, "doWork");
+    int *lib_version = (int *)dlsym(handle, "version");
+    if (!doWork || !lib_version) {
         fprintf(stderr, "Failed to get symbols: %s\n", dlerror());
-        dlclose(lib.handle);
+        dlclose(handle);
         return 1;
     }
 
     printf("Initial library version: %d\n", *lib_version);
-    printf("Initial doWork function at: %p\n", (void *)lib.doWork);
-
-    // Start file monitoring in a separate thread
-    if (pthread_create(&monitor_thread, NULL, monitor_file, &args) != 0) {
-        fprintf(stderr, "Failed to create monitor thread\n");
-        dlclose(lib.handle);
-        return 1;
-    }
+    printf("Initial doWork function at: %p\n", (void *)doWork);
 
     // Main loop
     while (1) {
-        acquire_lib();
+        // Call doWork
+        doWork();
 
-        // Get current function pointer under lock
-        pthread_mutex_lock(&lib.mutex);
-        doWork_t current_doWork = lib.doWork;
-        pthread_mutex_unlock(&lib.mutex);
-
-        if (current_doWork) {
-            current_doWork();
+        // Check if library file has changed
+        if (check_file_changed(LIB_NAME, &last_modified)) {
+            reload_library();
         }
 
-        release_lib();
         sleep(1);
     }
 
     // Cleanup (never reached in this example)
-    pthread_join(monitor_thread, NULL);
-    dlclose(lib.handle);
+    dlclose(handle);
     return 0;
 }
