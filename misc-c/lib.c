@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <unistd.h>
 
-const int version = 42;
+const int version = 45;
 
 int counter;
 

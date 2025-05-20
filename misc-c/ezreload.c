@@ -166,7 +166,9 @@ void *watch_library(void *arg __attribute__((unused))) {
         exit(1);
     }
 
-    int wd = inotify_add_watch(fd, LIB_NAME, IN_MODIFY | IN_CLOSE_WRITE);
+    // Watch for more events that might occur during file modification
+    int wd = inotify_add_watch(fd, LIB_NAME,
+        IN_MODIFY | IN_CLOSE_WRITE | IN_DELETE_SELF | IN_MOVE_SELF | IN_ATTRIB);
     if (wd == -1) {
         perror("inotify_add_watch");
         exit(1);
@@ -182,8 +184,10 @@ void *watch_library(void *arg __attribute__((unused))) {
 
         for (char *ptr = buf; ptr < buf + len;) {
             struct inotify_event *event = (struct inotify_event *)ptr;
-            if (event->mask & (IN_MODIFY | IN_CLOSE_WRITE)) {
-                printf("Library file changed, reloading...\n");
+            printf("inotify event: mask=0x%x\n", event->mask);
+
+            if (event->mask & (IN_MODIFY | IN_CLOSE_WRITE | IN_DELETE_SELF | IN_MOVE_SELF | IN_ATTRIB)) {
+                printf("Library file changed (event mask: 0x%x), reloading...\n", event->mask);
                 void *new_handle = open_library_and_resolve();
                 if (new_handle == NULL) {
                     printf("Failed to open library\n");

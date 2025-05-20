@@ -10,7 +10,8 @@ newlib:
 	@current=$$(grep "const int version" lib.c | sed 's/.*version = \([0-9]*\).*/\1/'); \
 	next=$$((current + 1)); \
 	sed "s/const int version = [0-9]*;/const int version = $$next;/" lib.c > lib.c.new; \
-	mv lib.c.new lib.c
+	mv lib.c.new lib.c && \
+	echo "Bumped version from $$current to $$next"
 	gcc -shared -fPIC -Wall -Wextra -pedantic lib.c -o libezreload.so
 
 run: ezreload libezreload.so
