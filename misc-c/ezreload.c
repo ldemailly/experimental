@@ -40,10 +40,9 @@ int check_file_changed(const char *filename, time_t *last_modified) {
 // Function to load the library or exit on failure.
 void load_library(void) {
     void *new_handle;
-    const int max_retries = 5;
     func_ptr_union fp;
-    for (int retries = 0; retries < max_retries; usleep(100000), retries++) {
-        printf("Attempting to load library (attempt %d/%d)...\n", retries + 1, max_retries);
+    for (int retries = 0; retries < MAX_RETRIES; usleep(100000), retries++) {
+        printf("Attempting to load library (attempt %d/%d)...\n", retries + 1, MAX_RETRIES);
 
         // First close old one
         if (handle) {
@@ -70,7 +69,7 @@ void load_library(void) {
         doWork = fp.func;
         return;
     }
-    printf("Failed to load library after %d attempts\n", max_retries);
+    printf("Failed to load library after %d attempts\n", MAX_RETRIES);
     exit(1);
 }
 
