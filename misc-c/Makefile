@@ -1,7 +1,7 @@
 all: ezreload libezreload.so
 
-ezreload: ezreload.c filemonitor.c
-	gcc ezreload.c filemonitor.c -Wall -Wextra -pedantic -o ezreload -ldl
+ezreload: ezreload.c
+	gcc ezreload.c -Wall -Wextra -pedantic -o ezreload -ldl
 
 libezreload.so: lib.c
 	gcc -shared -fPIC -Wall -Wextra -pedantic lib.c -o libezreload.so
@@ -15,7 +15,7 @@ newlib:
 	gcc -shared -fPIC -Wall -Wextra -pedantic lib.c -o libezreload.so
 
 run: ezreload libezreload.so
-	@echo "Running ezreload, do `make newlib` to bump the version/trigger a reload."
+	@echo "Running ezreload, do 'make newlib' to bump the version/trigger a reload."
 	./ezreload
 
 .PHONY: clean all newlib run
