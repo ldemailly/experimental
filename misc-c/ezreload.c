@@ -30,17 +30,10 @@ int check_file_changed(const char *filename, time_t *last_modified) {
         printf("Failed to stat %s: %s\n", filename, strerror(errno));
         return 0;
     }
-
-    if (*last_modified == 0) {
-        *last_modified = st.st_mtime;
-        return 0;
-    }
-
     if (st.st_mtime != *last_modified) {
         *last_modified = st.st_mtime;
         return 1;
     }
-
     return 0;
 }
 
@@ -54,6 +47,15 @@ void *load_library(void) {
 
     while (retries < max_retries) {
         printf("Attempting to load library (attempt %d/%d)...\n", retries + 1, max_retries);
+
+        // First close old one
+        if (handle) {
+            printf("Closing old library handle %p\n", handle);
+            if (dlclose(handle) != 0) {
+                printf("Warning: Failed to close old library: %s\n", dlerror());
+            }
+            handle = NULL;
+        }
 
         new_handle = dlopen(LIB_NAME, RTLD_NOW | RTLD_LOCAL);
         if (!new_handle) {
@@ -84,13 +86,6 @@ void *load_library(void) {
         printf("Successfully loaded library version %d\n", *lib_version);
         printf("doWork function at: %p\n", (void *)fp.obj);
 
-        // Update global variables
-        if (handle) {
-            printf("Closing old library handle %p\n", handle);
-            if (dlclose(handle) != 0) {
-                printf("Warning: Failed to close old library: %s\n", dlerror());
-            }
-        }
         handle = new_handle;
         doWork = fp.func;
         return new_handle;
@@ -102,6 +97,7 @@ void *load_library(void) {
 
 int main(void) {
     time_t last_modified = 0;
+    check_file_changed(LIB_NAME, &last_modified); // so we don't reload twice at startup
 
     // Initial library load
     if (!load_library()) {
@@ -112,17 +108,15 @@ int main(void) {
     // Main loop
     while (1) {
         // Call doWork
-        doWork();
-
+        doWork(); // this sleeps inside
         // Check if library file has changed
         if (check_file_changed(LIB_NAME, &last_modified)) {
             printf("Library file changed, reloading...\n");
             if (!load_library()) {
-                printf("Failed to reload library, keeping old one\n");
+                printf("Failed to reload library, exiting\n");
+                return 1;
             }
         }
-
-        sleep(1);
     }
 
     // Cleanup (never reached in this example)
