@@ -15,7 +15,7 @@ newlib:
 	gcc -shared -fPIC -Wall -Wextra -pedantic lib.c -o libezreload.so
 
 run: ezreload libezreload.so
-	@echo "Running ezreload, do `make newlib` to bump the version/trigger a reload."
+	@echo "Running ezreload, do 'make newlib' to bump the version/trigger a reload."
 	./ezreload
 
 .PHONY: clean all newlib run

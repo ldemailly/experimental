@@ -37,15 +37,12 @@ int check_file_changed(const char *filename, time_t *last_modified) {
     return 0;
 }
 
-// Function to load the library
-void *load_library(void) {
+// Function to load the library or exit on failure.
+void load_library(void) {
     void *new_handle;
-    int *lib_version;
-    int retries = 0;
     const int max_retries = 5;
     func_ptr_union fp;
-
-    while (retries < max_retries) {
+    for (int retries = 0; retries < max_retries; usleep(100000), retries++) {
         printf("Attempting to load library (attempt %d/%d)...\n", retries + 1, max_retries);
 
         // First close old one
@@ -60,64 +57,35 @@ void *load_library(void) {
         new_handle = dlopen(LIB_NAME, RTLD_NOW | RTLD_LOCAL);
         if (!new_handle) {
             printf("Failed to load library: %s\n", dlerror());
-            retries++;
-            usleep(100000);
             continue;
         }
-
         fp.obj = dlsym(new_handle, "doWork");
         if (!fp.obj) {
             printf("Failed to find doWork: %s\n", dlerror());
             dlclose(new_handle);
-            retries++;
-            usleep(100000);
             continue;
         }
-
-        lib_version = (int *)dlsym(new_handle, "version");
-        if (!lib_version) {
-            printf("Failed to find version: %s\n", dlerror());
-            dlclose(new_handle);
-            retries++;
-            usleep(100000);
-            continue;
-        }
-
-        printf("Successfully loaded library version %d\n", *lib_version);
-        printf("doWork function at: %p\n", (void *)fp.obj);
-
+        printf("Successfully loaded library, doWork %p\n", (void *)fp.obj);
         handle = new_handle;
         doWork = fp.func;
-        return new_handle;
+        return;
     }
-
     printf("Failed to load library after %d attempts\n", max_retries);
-    return NULL;
+    exit(1);
 }
 
 int main(void) {
     time_t last_modified = 0;
-    check_file_changed(LIB_NAME, &last_modified); // so we don't reload twice at startup
-
-    // Initial library load
-    if (!load_library()) {
-        fprintf(stderr, "Failed to load library: %s\n", dlerror());
-        return 1;
-    }
-
     // Main loop
-    while (1) {
-        // Call doWork
-        doWork(); // this sleeps inside
-        // Check if library file has changed
+    do {
+        // (Re)load library if it has changed (ts 0 will reload at startup)
         if (check_file_changed(LIB_NAME, &last_modified)) {
-            printf("Library file changed, reloading...\n");
-            if (!load_library()) {
-                printf("Failed to reload library, exiting\n");
-                return 1;
-            }
+            printf("Library file changed, (re)loading...\n");
+            load_library();
         }
-    }
+        // Call into the library (which will sleep inside)
+        doWork();
+    } while (1);
 
     // Cleanup (never reached in this example)
     if (handle) {
