@@ -7,6 +7,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <string.h>
+#include "filemonitor.h"
 
 #ifdef __APPLE__
 #include <sys/event.h>
@@ -19,37 +20,79 @@
 #define MAX_RETRIES 5
 #define RETRY_DELAY_US 200000 // 200ms
 
-typedef void (*doWorkFunc)(void);
+// Function pointer type for doWork
+typedef void (*doWork_t)(void);
 
-// Union to handle function pointer conversions in a standard-compliant way
-typedef union {
-    doWorkFunc func;
-    void *ptr;
-} func_ptr_union;
-
-time_t last_modified = 0;
-void *lib_handle = NULL;
-doWorkFunc doWork = NULL;
+// Global variables
+void *handle = NULL;
+doWork_t doWork = NULL;
 pthread_mutex_t doWork_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t doWork_done = PTHREAD_COND_INITIALIZER;
 int doWork_in_progress = 0;
 
-void *open_library_and_resolve(void) {
-    struct stat st;
+// Function to load the library
+void *load_library(void) {
+    void *new_handle;
+    doWork_t new_doWork;
+    int *lib_version;
     int retries = 0;
+    const int max_retries = 5;
 
-    // Try to stat the file with retries
-    while (stat(LIB_NAME, &st) != 0) {
-        if (retries++ >= MAX_RETRIES) {
-            printf("Failed to stat %s after %d retries: %s\n", LIB_NAME, MAX_RETRIES, strerror(errno));
-            return NULL;
+    while (retries < max_retries) {
+        printf("Attempting to load library (attempt %d/%d)...\n", retries + 1, max_retries);
+
+        // Try to load the library with appropriate flags
+#ifdef __APPLE__
+        new_handle = dlopen(LIB_NAME, RTLD_NOW | RTLD_LOCAL | RTLD_NODELETE);
+#elif defined(__linux__)
+        new_handle = dlopen(LIB_NAME, RTLD_NOW | RTLD_LOCAL | RTLD_NODELETE);
+#else
+        new_handle = dlopen(LIB_NAME, RTLD_NOW | RTLD_LOCAL);
+#endif
+
+        if (!new_handle) {
+            printf("Failed to load library: %s\n", dlerror());
+            retries++;
+            usleep(100000); // 100ms delay
+            continue;
         }
-        printf("Library file temporarily not found, retrying (%d/%d)...\n", retries, MAX_RETRIES);
-        usleep(RETRY_DELAY_US);
+
+        // Get the function pointer
+        new_doWork = (doWork_t)dlsym(new_handle, "doWork");
+        if (!new_doWork) {
+            printf("Failed to find doWork: %s\n", dlerror());
+            dlclose(new_handle);
+            retries++;
+            usleep(100000);
+            continue;
+        }
+
+        // Get the version
+        lib_version = (int *)dlsym(new_handle, "version");
+        if (!lib_version) {
+            printf("Failed to find version: %s\n", dlerror());
+            dlclose(new_handle);
+            retries++;
+            usleep(100000);
+            continue;
+        }
+
+        printf("Successfully loaded library version %d\n", *lib_version);
+        printf("doWork function at: %p\n", (void *)new_doWork);
+        return new_handle;
     }
 
-    printf("Library file exists, size: %ld bytes\n", (long)st.st_size);
-    last_modified = st.st_mtime;
+    printf("Failed to load library after %d attempts\n", max_retries);
+    return NULL;
+}
+
+// Function to reload the library
+void reload_library(void) {
+    void *new_handle;
+    doWork_t new_doWork;
+    int *lib_version;
+
+    printf("\nLibrary file changed, reloading...\n");
 
     // Wait for any ongoing doWork to finish
     pthread_mutex_lock(&doWork_mutex);
@@ -57,206 +100,95 @@ void *open_library_and_resolve(void) {
         printf("Waiting for current doWork to finish...\n");
         pthread_cond_wait(&doWork_done, &doWork_mutex);
     }
-
-    // First try to unload the library if it's already loaded
-    if (lib_handle != NULL) {
-        printf("Closing old library handle %p\n", lib_handle);
-        // Needed to not segfault during unload/reload.
-        doWork = NULL; // Clear the function pointer before closing
-        if (dlclose(lib_handle) != 0) {
-            printf("Failed to close old library: %s\n", dlerror());
-        }
-        lib_handle = NULL;
-    }
     pthread_mutex_unlock(&doWork_mutex);
 
-    // Now load the library fresh with retries
-    retries = 0;
-    void *e = NULL;
-    while (retries < MAX_RETRIES) {
-        printf("Opening library %s (attempt %d/%d)\n", LIB_NAME, retries + 1, MAX_RETRIES);
-        e = dlopen(LIB_NAME, RTLD_NOW | RTLD_LOCAL);
-        if (e != NULL) break;
-
-        char *err = dlerror();
-        printf("Failed to open %s: %s\n", LIB_NAME, err ? err : "unknown error");
-        retries++;
-        if (retries < MAX_RETRIES) {
-            printf("Retrying in %d ms...\n", RETRY_DELAY_US/1000);
-            usleep(RETRY_DELAY_US);
-        }
+    // Load the new library
+    new_handle = load_library();
+    if (!new_handle) {
+        printf("Failed to load new library, keeping old one\n");
+        return;
     }
 
-    if (e == NULL) {
-        printf("Failed to open library after %d attempts\n", MAX_RETRIES);
-        return NULL;
+    // Get the new function pointer and version
+    new_doWork = (doWork_t)dlsym(new_handle, "doWork");
+    lib_version = (int *)dlsym(new_handle, "version");
+
+    if (!new_doWork || !lib_version) {
+        printf("Failed to get new symbols: %s\n", dlerror());
+        dlclose(new_handle);
+        return;
     }
 
-    printf("Got new library handle %p\n", e);
-
-    func_ptr_union u;
-    u.ptr = dlsym(e, "doWork");
-    if (u.ptr == NULL) {
-        char *err = dlerror();
-        printf("Failed to find doWork: %s\n", err ? err : "unknown error");
-        dlclose(e);
-        return NULL;
-    }
-    printf("found new doWork: %p (library base: %p)\n", u.ptr, e);
-
-    // Get the version from the library
-    int *lib_version = dlsym(e, "version");
-    if (lib_version != NULL) {
-        printf("Library version: %d\n", *lib_version);
+    // Close the old library
+    if (handle) {
+        dlclose(handle);
     }
 
-    pthread_mutex_lock(&doWork_mutex);
-    doWork = u.func;
-    pthread_mutex_unlock(&doWork_mutex);
-
-    return e;
+    // Update the global variables
+    handle = new_handle;
+    doWork = new_doWork;
+    printf("Library reloaded successfully, new version: %d\n", *lib_version);
 }
 
-void *watch_library(void *arg __attribute__((unused))) {
-#ifdef __APPLE__
-    int kq = kqueue();
-    if (kq == -1) {
-        perror("kqueue");
-        exit(1);
-    }
-
-    int fd = open(LIB_NAME, O_RDONLY);
-    if (fd == -1) {
-        perror("open");
-        exit(1);
-    }
-
-    struct kevent event;
-    EV_SET(&event, fd, EVFILT_VNODE, EV_ADD | EV_ENABLE | EV_CLEAR,
-           NOTE_DELETE | NOTE_WRITE | NOTE_EXTEND | NOTE_ATTRIB | NOTE_LINK | NOTE_RENAME | NOTE_REVOKE,
-           0, NULL);
-
-    if (kevent(kq, &event, 1, NULL, 0, NULL) == -1) {
-        perror("kevent");
-        exit(1);
-    }
-
-    while (1) {
-        struct kevent event;
-        if (kevent(kq, NULL, 0, &event, 1, NULL) == -1) {
-            perror("kevent");
-            exit(1);
-        }
-
-        if (event.ident == (uintptr_t)fd) {
-            printf("Library file changed, reloading...\n");
-            void *new_handle = open_library_and_resolve();
-            if (new_handle == NULL) {
-                printf("Failed to open library\n");
-                exit(1);
-            }
-            lib_handle = new_handle;
-            printf("Library reloaded\n");
-        }
-    }
-#elif defined(__linux__)
-    int fd = inotify_init();
-    if (fd == -1) {
-        perror("inotify_init");
-        exit(1);
-    }
-
-    // Watch for more events that might occur during file modification
-    int wd = inotify_add_watch(fd, LIB_NAME,
-        IN_MODIFY | IN_CLOSE_WRITE | IN_DELETE_SELF | IN_MOVE_SELF | IN_ATTRIB);
-    if (wd == -1) {
-        perror("inotify_add_watch");
-        exit(1);
-    }
-
-    while (1) {
-        char buf[4096] __attribute__((aligned(8)));
-        int len = read(fd, buf, sizeof(buf));
-        if (len == -1) {
-            perror("read");
-            exit(1);
-        }
-
-        for (char *ptr = buf; ptr < buf + len;) {
-            struct inotify_event *event = (struct inotify_event *)ptr;
-            printf("inotify event: mask=0x%x\n", event->mask);
-
-            if (event->mask & (IN_MODIFY | IN_CLOSE_WRITE | IN_DELETE_SELF | IN_MOVE_SELF | IN_ATTRIB)) {
-                printf("Library file changed (event mask: 0x%x), waiting for file to be complete...\n", event->mask);
-
-                // Wait a bit to ensure the file is fully written
-                usleep(100000);  // 100ms
-
-                // Check if file exists and has non-zero size
-                struct stat st;
-                int retries = 0;
-                while (stat(LIB_NAME, &st) != 0 || st.st_size == 0) {
-                    if (retries++ >= 5) {
-                        printf("File not ready after %d retries\n", retries);
-                        break;
-                    }
-                    printf("File not ready (size: %ld), retrying...\n", st.st_size);
-                    usleep(100000);  // 100ms
-                }
-
-                if (st.st_size > 0) {
-                    printf("File is ready (size: %ld), reloading...\n", st.st_size);
-                    void *new_handle = open_library_and_resolve();
-                    if (new_handle == NULL) {
-                        printf("Failed to open library\n");
-                        exit(1);
-                    }
-                    lib_handle = new_handle;
-                    printf("Library reloaded\n");
-                } else {
-                    printf("Skipping reload - file not ready\n");
-                }
-            }
-            ptr += sizeof(struct inotify_event) + event->len;
-        }
-    }
-#else
-#error "Unsupported platform"
-#endif
+// Callback for file changes
+void on_file_change(const char *filename, void *user_data) {
+    (void)user_data;  // Silence unused parameter warning
+    printf("File change detected: %s\n", filename);
+    reload_library();
 }
 
 int main(void) {
-    lib_handle = open_library_and_resolve();
-    if (lib_handle == NULL) {
+    pthread_t monitor_thread;
+    struct monitor_args args = {
+        .filename = LIB_NAME,
+        .callback = on_file_change,
+        .user_data = NULL
+    };
+
+    // Initial library load
+    handle = load_library();
+    if (!handle) {
+        fprintf(stderr, "Failed to load library: %s\n", dlerror());
         return 1;
     }
 
-    pthread_t thread;
-    pthread_create(&thread, NULL, watch_library, NULL);
-
-    while (1) {
-        pthread_mutex_lock(&doWork_mutex);
-        doWorkFunc current_doWork = doWork;
-        if (current_doWork != NULL) {
-            doWork_in_progress = 1;
-            pthread_mutex_unlock(&doWork_mutex);
-
-            func_ptr_union u;
-            u.func = current_doWork;
-            printf("doWork: %p\n", u.ptr);
-            current_doWork();
-
-            pthread_mutex_lock(&doWork_mutex);
-            doWork_in_progress = 0;
-            pthread_cond_signal(&doWork_done);
-            pthread_mutex_unlock(&doWork_mutex);
-        } else {
-            pthread_mutex_unlock(&doWork_mutex);
-            printf("doWork is NULL, waiting for reload...\n");
-            usleep(SLEEP_US);
-        }
+    // Get initial function pointer and version
+    doWork = (doWork_t)dlsym(handle, "doWork");
+    int *lib_version = (int *)dlsym(handle, "version");
+    if (!doWork || !lib_version) {
+        fprintf(stderr, "Failed to get symbols: %s\n", dlerror());
+        dlclose(handle);
+        return 1;
     }
 
-    pthread_join(thread, NULL);
+    printf("Initial library version: %d\n", *lib_version);
+    printf("Initial doWork function at: %p\n", (void *)doWork);
+
+    // Start file monitoring in a separate thread
+    if (pthread_create(&monitor_thread, NULL, monitor_file, &args) != 0) {
+        fprintf(stderr, "Failed to create monitor thread\n");
+        dlclose(handle);
+        return 1;
+    }
+
+    // Main loop
+    while (1) {
+        pthread_mutex_lock(&doWork_mutex);
+        doWork_in_progress = 1;
+        pthread_mutex_unlock(&doWork_mutex);
+
+        doWork();
+
+        pthread_mutex_lock(&doWork_mutex);
+        doWork_in_progress = 0;
+        pthread_cond_signal(&doWork_done);
+        pthread_mutex_unlock(&doWork_mutex);
+
+        sleep(1);
+    }
+
+    // Cleanup (never reached in this example)
+    pthread_join(monitor_thread, NULL);
+    dlclose(handle);
     return 0;
 }
