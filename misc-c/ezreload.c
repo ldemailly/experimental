@@ -23,12 +23,23 @@
 // Function pointer type for doWork
 typedef void (*doWork_t)(void);
 
+// Library state structure
+struct lib_state {
+    void *handle;
+    doWork_t doWork;
+    int ref_count;
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+};
+
 // Global variables
-void *handle = NULL;
-doWork_t doWork = NULL;
-pthread_mutex_t doWork_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t doWork_done = PTHREAD_COND_INITIALIZER;
-int doWork_in_progress = 0;
+struct lib_state lib = {
+    .handle = NULL,
+    .doWork = NULL,
+    .ref_count = 0,
+    .mutex = PTHREAD_MUTEX_INITIALIZER,
+    .cond = PTHREAD_COND_INITIALIZER
+};
 
 // Function to load the library
 void *load_library(void) {
@@ -41,23 +52,14 @@ void *load_library(void) {
     while (retries < max_retries) {
         printf("Attempting to load library (attempt %d/%d)...\n", retries + 1, max_retries);
 
-        // Try to load the library with appropriate flags
-#ifdef __APPLE__
-        new_handle = dlopen(LIB_NAME, RTLD_NOW | RTLD_LOCAL | RTLD_NODELETE);
-#elif defined(__linux__)
-        new_handle = dlopen(LIB_NAME, RTLD_NOW | RTLD_LOCAL | RTLD_NODELETE);
-#else
         new_handle = dlopen(LIB_NAME, RTLD_NOW | RTLD_LOCAL);
-#endif
-
         if (!new_handle) {
             printf("Failed to load library: %s\n", dlerror());
             retries++;
-            usleep(100000); // 100ms delay
+            usleep(100000);
             continue;
         }
 
-        // Get the function pointer
         new_doWork = (doWork_t)dlsym(new_handle, "doWork");
         if (!new_doWork) {
             printf("Failed to find doWork: %s\n", dlerror());
@@ -67,7 +69,6 @@ void *load_library(void) {
             continue;
         }
 
-        // Get the version
         lib_version = (int *)dlsym(new_handle, "version");
         if (!lib_version) {
             printf("Failed to find version: %s\n", dlerror());
@@ -86,6 +87,23 @@ void *load_library(void) {
     return NULL;
 }
 
+// Function to acquire library reference
+void acquire_lib(void) {
+    pthread_mutex_lock(&lib.mutex);
+    lib.ref_count++;
+    pthread_mutex_unlock(&lib.mutex);
+}
+
+// Function to release library reference
+void release_lib(void) {
+    pthread_mutex_lock(&lib.mutex);
+    lib.ref_count--;
+    if (lib.ref_count == 0) {
+        pthread_cond_signal(&lib.cond);
+    }
+    pthread_mutex_unlock(&lib.mutex);
+}
+
 // Function to reload the library
 void reload_library(void) {
     void *new_handle;
@@ -94,13 +112,13 @@ void reload_library(void) {
 
     printf("\nLibrary file changed, reloading...\n");
 
-    // Wait for any ongoing doWork to finish
-    pthread_mutex_lock(&doWork_mutex);
-    while (doWork_in_progress) {
-        printf("Waiting for current doWork to finish...\n");
-        pthread_cond_wait(&doWork_done, &doWork_mutex);
+    // Wait for all library operations to complete
+    pthread_mutex_lock(&lib.mutex);
+    while (lib.ref_count > 0) {
+        printf("Waiting for %d library operations to complete...\n", lib.ref_count);
+        pthread_cond_wait(&lib.cond, &lib.mutex);
     }
-    pthread_mutex_unlock(&doWork_mutex);
+    pthread_mutex_unlock(&lib.mutex);
 
     // Load the new library
     new_handle = load_library();
@@ -119,15 +137,24 @@ void reload_library(void) {
         return;
     }
 
-    // Close the old library
-    if (handle) {
-        dlclose(handle);
-    }
+    // Store old handle for cleanup
+    void *old_handle = lib.handle;
 
-    // Update the global variables
-    handle = new_handle;
-    doWork = new_doWork;
+    // Update the library state
+    pthread_mutex_lock(&lib.mutex);
+    lib.handle = new_handle;
+    lib.doWork = new_doWork;
+    pthread_mutex_unlock(&lib.mutex);
+
     printf("Library reloaded successfully, new version: %d\n", *lib_version);
+
+    // Close the old library
+    if (old_handle) {
+        printf("Closing old library handle %p\n", old_handle);
+        if (dlclose(old_handle) != 0) {
+            printf("Warning: Failed to close old library: %s\n", dlerror());
+        }
+    }
 }
 
 // Callback for file changes
@@ -146,49 +173,50 @@ int main(void) {
     };
 
     // Initial library load
-    handle = load_library();
-    if (!handle) {
+    lib.handle = load_library();
+    if (!lib.handle) {
         fprintf(stderr, "Failed to load library: %s\n", dlerror());
         return 1;
     }
 
     // Get initial function pointer and version
-    doWork = (doWork_t)dlsym(handle, "doWork");
-    int *lib_version = (int *)dlsym(handle, "version");
-    if (!doWork || !lib_version) {
+    lib.doWork = (doWork_t)dlsym(lib.handle, "doWork");
+    int *lib_version = (int *)dlsym(lib.handle, "version");
+    if (!lib.doWork || !lib_version) {
         fprintf(stderr, "Failed to get symbols: %s\n", dlerror());
-        dlclose(handle);
+        dlclose(lib.handle);
         return 1;
     }
 
     printf("Initial library version: %d\n", *lib_version);
-    printf("Initial doWork function at: %p\n", (void *)doWork);
+    printf("Initial doWork function at: %p\n", (void *)lib.doWork);
 
     // Start file monitoring in a separate thread
     if (pthread_create(&monitor_thread, NULL, monitor_file, &args) != 0) {
         fprintf(stderr, "Failed to create monitor thread\n");
-        dlclose(handle);
+        dlclose(lib.handle);
         return 1;
     }
 
     // Main loop
     while (1) {
-        pthread_mutex_lock(&doWork_mutex);
-        doWork_in_progress = 1;
-        pthread_mutex_unlock(&doWork_mutex);
+        acquire_lib();
 
-        doWork();
+        // Get current function pointer under lock
+        pthread_mutex_lock(&lib.mutex);
+        doWork_t current_doWork = lib.doWork;
+        pthread_mutex_unlock(&lib.mutex);
 
-        pthread_mutex_lock(&doWork_mutex);
-        doWork_in_progress = 0;
-        pthread_cond_signal(&doWork_done);
-        pthread_mutex_unlock(&doWork_mutex);
+        if (current_doWork) {
+            current_doWork();
+        }
 
+        release_lib();
         sleep(1);
     }
 
     // Cleanup (never reached in this example)
     pthread_join(monitor_thread, NULL);
-    dlclose(handle);
+    dlclose(lib.handle);
     return 0;
 }
