@@ -13,6 +13,12 @@
 // Function pointer type for doWork
 typedef void (*doWork_t)(void);
 
+// Union for safe function pointer conversion
+typedef union {
+    void *obj;
+    doWork_t func;
+} func_ptr_union;
+
 // Global variables
 void *handle = NULL;
 doWork_t doWork = NULL;
@@ -41,10 +47,10 @@ int check_file_changed(const char *filename, time_t *last_modified) {
 // Function to load the library
 void *load_library(void) {
     void *new_handle;
-    doWork_t new_doWork;
     int *lib_version;
     int retries = 0;
     const int max_retries = 5;
+    func_ptr_union fp;
 
     while (retries < max_retries) {
         printf("Attempting to load library (attempt %d/%d)...\n", retries + 1, max_retries);
@@ -57,8 +63,8 @@ void *load_library(void) {
             continue;
         }
 
-        new_doWork = (doWork_t)dlsym(new_handle, "doWork");
-        if (!new_doWork) {
+        fp.obj = dlsym(new_handle, "doWork");
+        if (!fp.obj) {
             printf("Failed to find doWork: %s\n", dlerror());
             dlclose(new_handle);
             retries++;
@@ -76,7 +82,7 @@ void *load_library(void) {
         }
 
         printf("Successfully loaded library version %d\n", *lib_version);
-        printf("doWork function at: %p\n", (void *)new_doWork);
+        printf("doWork function at: %p\n", (void *)fp.obj);
         return new_handle;
     }
 
@@ -87,8 +93,8 @@ void *load_library(void) {
 // Function to reload the library
 void reload_library(void) {
     void *new_handle;
-    doWork_t new_doWork;
     int *lib_version;
+    func_ptr_union fp;
 
     printf("Library file changed, reloading...\n");
 
@@ -100,11 +106,16 @@ void reload_library(void) {
     }
 
     // Get the new function pointer and version
-    new_doWork = (doWork_t)dlsym(new_handle, "doWork");
-    lib_version = (int *)dlsym(new_handle, "version");
+    fp.obj = dlsym(new_handle, "doWork");
+    if (!fp.obj) {
+        printf("Failed to get new doWork: %s\n", dlerror());
+        dlclose(new_handle);
+        return;
+    }
 
-    if (!new_doWork || !lib_version) {
-        printf("Failed to get new symbols: %s\n", dlerror());
+    lib_version = (int *)dlsym(new_handle, "version");
+    if (!lib_version) {
+        printf("Failed to get new version: %s\n", dlerror());
         dlclose(new_handle);
         return;
     }
@@ -114,7 +125,7 @@ void reload_library(void) {
 
     // Update the global variables
     handle = new_handle;
-    doWork = new_doWork;
+    doWork = fp.func;
     printf("Library reloaded successfully, new version: %d\n", *lib_version);
 
     // Close the old library
@@ -128,6 +139,7 @@ void reload_library(void) {
 
 int main(void) {
     time_t last_modified = 0;
+    func_ptr_union fp;
 
     // Initial library load
     handle = load_library();
@@ -137,16 +149,23 @@ int main(void) {
     }
 
     // Get initial function pointer and version
-    doWork = (doWork_t)dlsym(handle, "doWork");
+    fp.obj = dlsym(handle, "doWork");
+    if (!fp.obj) {
+        fprintf(stderr, "Failed to get doWork: %s\n", dlerror());
+        dlclose(handle);
+        return 1;
+    }
+    doWork = fp.func;
+
     int *lib_version = (int *)dlsym(handle, "version");
-    if (!doWork || !lib_version) {
-        fprintf(stderr, "Failed to get symbols: %s\n", dlerror());
+    if (!lib_version) {
+        fprintf(stderr, "Failed to get version: %s\n", dlerror());
         dlclose(handle);
         return 1;
     }
 
     printf("Initial library version: %d\n", *lib_version);
-    printf("Initial doWork function at: %p\n", (void *)doWork);
+    printf("Initial doWork function at: %p\n", (void *)fp.obj);
 
     // Main loop
     while (1) {
