@@ -187,14 +187,35 @@ void *watch_library(void *arg __attribute__((unused))) {
             printf("inotify event: mask=0x%x\n", event->mask);
 
             if (event->mask & (IN_MODIFY | IN_CLOSE_WRITE | IN_DELETE_SELF | IN_MOVE_SELF | IN_ATTRIB)) {
-                printf("Library file changed (event mask: 0x%x), reloading...\n", event->mask);
-                void *new_handle = open_library_and_resolve();
-                if (new_handle == NULL) {
-                    printf("Failed to open library\n");
-                    exit(1);
+                printf("Library file changed (event mask: 0x%x), waiting for file to be complete...\n", event->mask);
+
+                // Wait a bit to ensure the file is fully written
+                usleep(100000);  // 100ms
+
+                // Check if file exists and has non-zero size
+                struct stat st;
+                int retries = 0;
+                while (stat(LIB_NAME, &st) != 0 || st.st_size == 0) {
+                    if (retries++ >= 5) {
+                        printf("File not ready after %d retries\n", retries);
+                        break;
+                    }
+                    printf("File not ready (size: %ld), retrying...\n", st.st_size);
+                    usleep(100000);  // 100ms
                 }
-                lib_handle = new_handle;
-                printf("Library reloaded\n");
+
+                if (st.st_size > 0) {
+                    printf("File is ready (size: %ld), reloading...\n", st.st_size);
+                    void *new_handle = open_library_and_resolve();
+                    if (new_handle == NULL) {
+                        printf("Failed to open library\n");
+                        exit(1);
+                    }
+                    lib_handle = new_handle;
+                    printf("Library reloaded\n");
+                } else {
+                    printf("Skipping reload - file not ready\n");
+                }
             }
             ptr += sizeof(struct inotify_event) + event->len;
         }
