@@ -3,7 +3,7 @@
 
 const int version = 97;
 
-int counter;
+int counter; // c99 guarantees initialization to zero
 
 void doWork(void) {
     printf("Hello, inside call %d of doWork version %d!\n", counter, version);
