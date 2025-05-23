@@ -1,2 +1,6 @@
 ezreload
 libezreload.so
+sig
+sig.gen
+sig.c
+a.out
