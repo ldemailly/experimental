@@ -34,7 +34,11 @@ run-stdin: sig.c
 	@cat sig.c
 	gcc -ansi -w -x c - && ./a.out
 
-.PHONY: clean all newlib run
+alloc-fail-demo: alloc_fail3.c
+	gcc -Wall -Wextra -Werror -pedantic $<
+	sh -c "ulimit -v 102400; ./a.out"
+
+.PHONY: clean all newlib run alloc-fail-demo
 
 clean:
 	rm -f ezreload libezreload.so a.out sig.gen sig.c sig
