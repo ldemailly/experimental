@@ -1,11 +1,8 @@
 // Disproving https://scvalex.net/posts/6/
 // Just need, eg:
 // ulimit -v 102400 # 100Mb
-#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <sys/mman.h>
 
 int main(void) {
   printf("Before\n");
@@ -14,10 +11,9 @@ int main(void) {
   size_t sz = mb * 1024 * 1024;
   void *p;
   while (1) {
-    errno = 0;
     p = malloc(sz);
-    if (p == NULL || errno != 0) {
-      perror("failed alloc");
+    if (p == NULL) {
+      perror("failed malloc");
       return 1;
     }
     printf("Allocated %d MB at %p\n", ++i*mb, p);

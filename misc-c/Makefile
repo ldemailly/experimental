@@ -36,7 +36,7 @@ run-stdin: sig.c
 
 alloc-fail-demo: alloc_fail3.c
 	gcc -Wall -Wextra -Werror -pedantic $<
-	sh -c "ulimit -v 102400; ./a.out"
+	sh -c "ulimit -v 102400 && ./a.out"
 
 .PHONY: clean all newlib run alloc-fail-demo
 
