@@ -22,7 +22,7 @@ int main(void) {
   int *p = NULL;
   int x;
   x = *p; // read from NULL pointer
-  printf("%d\n", x);
+  printf("%p %d\n", (void*)p, x);
   *p = 42; // write to NULL pointer
   printf("%d\n", *p);
   return 0;
