@@ -39,7 +39,7 @@ alloc-fail-demo: alloc_fail3.c
 	sh -c "ulimit -v 102400 && ./a.out"
 
 happynull: happynull.c
-	gcc -Wall -Wextra -pedantic happynull.c -fsanitize=address -o happynull
+	gcc -Wall -Wextra -Werror -pedantic happynull.c -fsanitize=address -o happynull
 	./happynull
 
 .PHONY: clean all newlib run alloc-fail-demo
