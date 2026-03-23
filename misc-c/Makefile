@@ -46,29 +46,20 @@ happynull: happynull.c
 	./happynull
 
 
-code.bin: hotreload_impl2.c
+code.bin: hotreload_impl2.c Makefile
 	$(CC) -c $(HOTRELOAD_CFLAGS) hotreload_impl2.c -o hotreload_impl2.o
-	@os=$$(uname -s); \
+	os=$$(uname -s); \
 	if [ "$$os" = "Darwin" ]; then \
-		if command -v llvm-objcopy >/dev/null 2>&1; then \
-			llvm-objcopy --dump-section __TEXT,__text=$@ hotreload_impl2.o; \
-		elif command -v gobjcopy >/dev/null 2>&1; then \
-			gobjcopy --dump-section __TEXT,__text=$@ hotreload_impl2.o; \
-		else \
-			text_off=$$(otool -l hotreload_impl2.o | awk '/sectname __text/{f=1} f && /offset/{print $$2; exit}'); \
-			text_size_hex=$$(otool -l hotreload_impl2.o | awk '/sectname __text/{f=1} f && /size/{print $$2; exit}'); \
-			text_size=$$((text_size_hex)); \
-			dd if=hotreload_impl2.o of=$@ bs=1 skip=$$text_off count=$$text_size status=none; \
-		fi; \
+		llvm-objcopy --dump-section __TEXT,__text=$@ hotreload_impl2.o 2>/dev/null || \
+		gobjcopy --dump-section __TEXT,__text=$@ hotreload_impl2.o 2>/dev/null || \
+		(text_off=$$(otool -l hotreload_impl2.o | awk '/sectname __text/{f=1} f && /offset/{print $$2; exit}'); \
+		 text_size_hex=$$(otool -l hotreload_impl2.o | awk '/sectname __text/{f=1} f && /size/{print $$2; exit}'); \
+		 text_size=$$((text_size_hex)); \
+		 dd if=hotreload_impl2.o of=$@ bs=1 skip=$$text_off count=$$text_size status=none); \
 	else \
-		if command -v objcopy >/dev/null 2>&1; then \
-			objcopy -O binary --only-section=.text hotreload_impl2.o $@; \
-		elif command -v llvm-objcopy >/dev/null 2>&1; then \
-			llvm-objcopy -O binary --only-section=.text hotreload_impl2.o $@; \
-		else \
-			echo "No objcopy or llvm-objcopy found; cannot build $@" >&2; \
-			exit 1; \
-		fi; \
+		objcopy -O binary --only-section=.text hotreload_impl2.o $@ 2>/dev/null || \
+		llvm-objcopy -O binary --only-section=.text hotreload_impl2.o $@ 2>/dev/null || \
+		(echo "No objcopy or llvm-objcopy found; cannot build $@" >&2; exit 1); \
 	fi
 	rm -f hotreload_impl2.o
 
