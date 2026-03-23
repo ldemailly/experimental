@@ -1,4 +1,5 @@
 CFLAGS=-Wall -Wextra -pedantic -Werror -fsanitize=address,undefined
+HOTRELOAD_CFLAGS=-O2 -Wall -Wextra -Werror -fno-stack-protector -fomit-frame-pointer -fno-asynchronous-unwind-tables
 
 all: ezreload libezreload.so
 
@@ -44,7 +45,16 @@ happynull: happynull.c
 	gcc $(CFLAGS) happynull.c -o happynull
 	./happynull
 
+
+data.bin: hotreload_impl2.c
+	clang -c $(HOTRELOAD_CFLAGS) hotreload_impl2.c -o hotreload_impl2.o
+	text_off=$$(otool -l hotreload_impl2.o | awk '/sectname __text/{f=1} f && /offset/{print $$2; exit}'); \
+	text_size_hex=$$(otool -l hotreload_impl2.o | awk '/sectname __text/{f=1} f && /size/{print $$2; exit}'); \
+	text_size=$$((text_size_hex)); \
+	dd if=hotreload_impl2.o of=data.bin bs=1 skip=$$text_off count=$$text_size status=none
+	rm -f hotreload_impl2.o
+
 .PHONY: clean all newlib run alloc-fail-demo
 
 clean:
-	rm -f ezreload libezreload.so a.out sig.gen sig.c sig happynull
+	rm -f ezreload libezreload.so a.out sig.gen sig.c sig happynull hotreload_impl2.o data.bin

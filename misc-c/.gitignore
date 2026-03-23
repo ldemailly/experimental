@@ -5,3 +5,5 @@ sig
 sig.gen
 sig.c
 a.out
+data.bin
+hotreload
