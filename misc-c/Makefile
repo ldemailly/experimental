@@ -46,7 +46,7 @@ happynull: happynull.c
 	./happynull
 
 
-data.bin: hotreload_impl2.c
+code.bin: hotreload_impl2.c
 	$(CC) -c $(HOTRELOAD_CFLAGS) hotreload_impl2.c -o hotreload_impl2.o
 	@os=$$(uname -s); \
 	if [ "$$os" = "Darwin" ]; then \
@@ -72,7 +72,10 @@ data.bin: hotreload_impl2.c
 	fi
 	rm -f hotreload_impl2.o
 
-.PHONY: clean all newlib run alloc-fail-demo
+hotreload-demo: code.bin hotreload
+	./hotreload
+
+.PHONY: clean all newlib run alloc-fail-demo hotreload-demo
 
 clean:
-	rm -f ezreload libezreload.so a.out sig.gen sig.c sig happynull hotreload_impl2.o data.bin
+	rm -f ezreload libezreload.so a.out sig.gen sig.c sig happynull hotreload_impl2.o code.bin

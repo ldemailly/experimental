@@ -6,4 +6,5 @@ sig.gen
 sig.c
 a.out
 data.bin
+code.bin
 hotreload
