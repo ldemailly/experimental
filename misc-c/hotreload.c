@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
-
+#include <sys/errno.h>
 
 typedef int (*func_t)(int);
 
@@ -10,11 +10,11 @@ int myFunc1(int inp) {
     return 2*inp;
 }
 
-// read (could be from network, using a file to keep this simple)
+// load new function/code (could be from network, using a file to keep this simple)
 char *load_code(char *fname) {
     FILE *f = fopen(fname, "rb");
     if (!f) {
-        perror("fopen");
+        fprintf(stderr, "fopen %s failed: %s\n", fname, strerror(errno));
         return NULL;
     }
     fseek(f, 0, SEEK_END);
@@ -47,19 +47,24 @@ char *load_code(char *fname) {
     return data;
 }
 
+func_t change_func(char *fname) {
+    char *data = load_code(fname);
+    if (!data) {
+        exit(1); // error already logged.
+    }
+    func_t result;
+    // without -Wpedantic, we could just do: return (func_t)data;
+    memcpy(&result, &data, sizeof(func_t));
+    return result;
+}
+
 int main(void) {
     func_t myFunc = myFunc1;
     int inp;
     printf("input: ");
     scanf("%d", &inp);
     printf("before hot reload: myFunc(%d) = %d\n", inp, myFunc(inp));
-    char *data = load_code("code.bin");
-    if (!data) {
-        fprintf(stderr, "Failed to read new code\n");
-        return 1;
-    }
-    // assign the pointer (-Wpedantic doesn't like the simpler/direct cast)
-    memcpy(&myFunc, &data, sizeof(myFunc));
+    myFunc = change_func("code.bin");
     printf("after hot reload : myFunc(%d) = %d\n", inp, myFunc(inp));
     return 0;
 }

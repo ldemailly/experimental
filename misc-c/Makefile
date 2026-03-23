@@ -69,4 +69,4 @@ hotreload-demo: code.bin hotreload
 .PHONY: clean all newlib run alloc-fail-demo hotreload-demo
 
 clean:
-	rm -f ezreload libezreload.so a.out sig.gen sig.c sig happynull hotreload_impl2.o code.bin
+	rm -f ezreload libezreload.so a.out sig.gen sig.c sig happynull hotreload hotreload_impl2.o code.bin
