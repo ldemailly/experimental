@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/mman.h>
 
 
@@ -54,7 +55,6 @@ char *read_data(char *fname) {
 
 int main(void) {
     func_t myFunc = myFunc1;
-
     int inp;
     printf("input: ");
     scanf("%d", &inp);
@@ -64,8 +64,8 @@ int main(void) {
         fprintf(stderr, "Failed to read data\n");
         return 1;
     }
-    myFunc = (int (*)(int))data;
+    // assign the pointer (-Wpedantic doesn't like the simpler/direct cast)
+    memcpy(&myFunc, &data, sizeof(myFunc));
     printf("myFunc(%d) = %d\n", inp, myFunc(inp));
-    
     return 0;
 }
