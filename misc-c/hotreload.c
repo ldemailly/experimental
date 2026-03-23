@@ -52,7 +52,7 @@ int main(void) {
     int inp;
     printf("input: ");
     scanf("%d", &inp);
-    printf("myFunc1(%d) = %d\n", inp, myFunc(inp));
+    printf("before hot reload: myFunc(%d) = %d\n", inp, myFunc(inp));
     char *data = load_code("code.bin");
     if (!data) {
         fprintf(stderr, "Failed to read new code\n");
@@ -60,6 +60,6 @@ int main(void) {
     }
     // assign the pointer (-Wpedantic doesn't like the simpler/direct cast)
     memcpy(&myFunc, &data, sizeof(myFunc));
-    printf("myFunc(%d) = %d\n", inp, myFunc(inp));
+    printf("after hot reload : myFunc(%d) = %d\n", inp, myFunc(inp));
     return 0;
 }
