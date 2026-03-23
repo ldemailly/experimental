@@ -47,11 +47,29 @@ happynull: happynull.c
 
 
 data.bin: hotreload_impl2.c
-	clang -c $(HOTRELOAD_CFLAGS) hotreload_impl2.c -o hotreload_impl2.o
-	text_off=$$(otool -l hotreload_impl2.o | awk '/sectname __text/{f=1} f && /offset/{print $$2; exit}'); \
-	text_size_hex=$$(otool -l hotreload_impl2.o | awk '/sectname __text/{f=1} f && /size/{print $$2; exit}'); \
-	text_size=$$((text_size_hex)); \
-	dd if=hotreload_impl2.o of=data.bin bs=1 skip=$$text_off count=$$text_size status=none
+	$(CC) -c $(HOTRELOAD_CFLAGS) hotreload_impl2.c -o hotreload_impl2.o
+	@os=$$(uname -s); \
+	if [ "$$os" = "Darwin" ]; then \
+		if command -v llvm-objcopy >/dev/null 2>&1; then \
+			llvm-objcopy --dump-section __TEXT,__text=$@ hotreload_impl2.o; \
+		elif command -v gobjcopy >/dev/null 2>&1; then \
+			gobjcopy --dump-section __TEXT,__text=$@ hotreload_impl2.o; \
+		else \
+			text_off=$$(otool -l hotreload_impl2.o | awk '/sectname __text/{f=1} f && /offset/{print $$2; exit}'); \
+			text_size_hex=$$(otool -l hotreload_impl2.o | awk '/sectname __text/{f=1} f && /size/{print $$2; exit}'); \
+			text_size=$$((text_size_hex)); \
+			dd if=hotreload_impl2.o of=$@ bs=1 skip=$$text_off count=$$text_size status=none; \
+		fi; \
+	else \
+		if command -v objcopy >/dev/null 2>&1; then \
+			objcopy -O binary --only-section=.text hotreload_impl2.o $@; \
+		elif command -v llvm-objcopy >/dev/null 2>&1; then \
+			llvm-objcopy -O binary --only-section=.text hotreload_impl2.o $@; \
+		else \
+			echo "No objcopy or llvm-objcopy found; cannot build $@" >&2; \
+			exit 1; \
+		fi; \
+	fi
 	rm -f hotreload_impl2.o
 
 .PHONY: clean all newlib run alloc-fail-demo
