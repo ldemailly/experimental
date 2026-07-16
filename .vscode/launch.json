@@ -1,0 +1,58 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Launch local (macOS)",
+            "program": "${workspaceFolder}/x86_64/hello",
+            "args": [],
+            "cwd": "${workspaceFolder}/x86_64",
+        },
+        {
+            "type": "lldb",
+            "request": "custom",
+            "name": "Attach remote (Docker Linux gdbserver :2345)",
+            "targetCreateCommands": [
+                "target create ${workspaceFolder}/x86_64/hello_linux"
+            ],
+            "processCreateCommands": [
+                "gdb-remote 127.0.0.1:2345"
+            ],
+            "sourceMap": {
+                "/workspace": "${workspaceFolder}/x86_64"
+            }
+        },
+        {
+            "type": "lldb",
+            "request": "custom",
+            "name": "Attach remote (Apple container gdbserver :2346)",
+            "targetCreateCommands": [
+                "target create ${workspaceFolder}/x86_64/hello_linux"
+            ],
+            "processCreateCommands": [
+                "gdb-remote 127.0.0.1:2346"
+            ],
+            "sourceMap": {
+                "/workspace": "${workspaceFolder}/x86_64"
+            }
+        },
+        {
+            "type": "lldb",
+            "request": "custom",
+            "name": "Attach remote (SSH tunnel gdbserver :2347)",
+            "targetCreateCommands": [
+                "target create ${workspaceFolder}/x86_64/hello_linux"
+            ],
+            "processCreateCommands": [
+                "gdb-remote 127.0.0.1:2347"
+            ],
+            "sourceMap": {
+                "/workspace": "${workspaceFolder}/x86_64"
+            }
+        },
+    ]
+}
