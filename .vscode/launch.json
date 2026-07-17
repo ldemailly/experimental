@@ -14,7 +14,7 @@
         },
         {
             "type": "lldb",
-            "request": "custom",
+            "request": "attach",
             "name": "Attach remote (Docker Linux gdbserver :2345)",
             "targetCreateCommands": [
                 "target create ${workspaceFolder}/x86_64/hello_linux"
@@ -28,7 +28,7 @@
         },
         {
             "type": "lldb",
-            "request": "custom",
+            "request": "attach",
             "name": "Attach remote (Apple container gdbserver :2346)",
             "targetCreateCommands": [
                 "target create ${workspaceFolder}/x86_64/hello_linux"
@@ -42,7 +42,7 @@
         },
         {
             "type": "lldb",
-            "request": "custom",
+            "request": "attach",
             "name": "Attach remote (SSH tunnel gdbserver :2347)",
             "targetCreateCommands": [
                 "target create ${workspaceFolder}/x86_64/hello_linux"
