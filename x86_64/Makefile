@@ -49,7 +49,7 @@ run_linux: $(LINUX_EXE)
 	@echo "Running Linux ELF64 build inside emulated Docker container..."
 	$(DOCKER_RUN_LINUX) sh -c "./$(LINUX_EXE)"
 
-run_linux_apple: $(LINUX_EXE)
+run_linux_apple: linux_image_apple $(LINUX_EXE)
 	@echo "Running Linux ELF64 build inside Apple container runtime..."
 	container run --rm --arch amd64 --volume "$(CURDIR)":/workspace --workdir /workspace $(APPLE_IMAGE) sh -c "./$(LINUX_EXE)"
 
