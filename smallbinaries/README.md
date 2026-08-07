@@ -13,3 +13,28 @@ For the gory details, see [Makefile](Makefile) and compare the resulting `tiny`,
 If you have a docker login you can see the [build status](https://cloud.docker.com/swarm/ldemailly/repository/docker/ldemailly/tiniest/builds), otherwise you can pull the image: [`docker pull ldemailly/tiniest`](https://hub.docker.com/r/ldemailly/tiniest/)
 
 Note that if you see this on docker hub, the source of this file with working links is on GitHub: https://github.com/ldemailly/experimental/blob/master/smallbinaries/README.md
+
+
+## more recent
+From C&C++ discord:
+```bash
+$ cat start.c
+```
+```c
+[[noreturn]]
+void _start(void)
+{
+        asm (
+                "mov eax, 60\n\t"
+                "xor edi, edi\n\t"
+                "syscall\n\t"
+                :
+                :
+                : "rax", "rdi", "rcx", "r11"
+        );
+}
+```
+```bash
+$ gcc -Oz -w -nostdlib -masm=intel -c start.c && objcopy -j .text start.o justtext.o && ld --nmagic -znosectionheader justtext.o && du -b a.out
+129     a.out
+```
