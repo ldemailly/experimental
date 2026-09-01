@@ -112,6 +112,9 @@ int main(int argc, char *argv[]) {
     if (!(start & 1wb)) {
         start++; // make sure we start with an odd number
     }
+    if (start < 3wb) {
+        start = 3wb; // Collatz sequence is trivial for 1 and 2 (and would loop with our assumptions).
+    }
     if (!atoi(argv[2], &end)) {
         fprintf(stderr, "Invalid input: %s\n", argv[2]);
         return 1;
