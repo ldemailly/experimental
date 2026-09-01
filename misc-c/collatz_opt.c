@@ -1,10 +1,11 @@
 // Compile with
-// clang -std=c23 -Wall -Wextra -pedantic -Werror -O3  collatz.c -march=native -o collatz
-// See collatz_opt.c for a more optimized version that uses 64bits when possible and is 
-// almost 2x faster.
+// clang -std=c23 -Wall -Wextra -pedantic -Werror -O3  collatz_opt.c -march=native -o collatz_opt
+// See collatz.c for a simpler version that uses always 128bits and is almost 2x slower.
 // Note that on apple silicon clang is almost 3.2x faster than gcc 16.2.0 somehow.
+
 #include <errno.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -73,35 +74,54 @@ constexpr _BitInt(BITSIZE) maxcollatz = ((_BitInt(BITSIZE))((~(unsigned _BitInt(
                                          1wb) /
                                         3wb;
 
-bool collatz(_BitInt(BITSIZE) * n) {
-    if ((*n & 1) == 0) {
-        *n /= 2wb;
-    } else {
-        if (*n > maxcollatz) {
-            fprintf(stderr, "Overflow would occur during Collatz computation.\n");
-            return false;
-        }
-        *n = 3wb * (*n) + 1wb;
-    }
-    return true;
-}
+// Largest n for which 3*n+1 still fits in a uint64_t.
+constexpr uint64_t maxcollatz64 = (UINT64_MAX - 1) / 3;
 
 // Returns the max reached. -negative if overflow would occur.
+// Odd n only: 3n+1 is always the peak of a run (the halving chain that
+// follows is strictly decreasing), so we fast-forward straight to the next
+// odd value in one step instead of halving one bit at a time.
 _BitInt(BITSIZE) collatzrun(_BitInt(BITSIZE) n) {
     _BitInt(BITSIZE) max = n;
     // as we run everything in sequence, as soon as we dip below previous
     // value, we're done.
     _BitInt(BITSIZE) prev = n - 1;
-    bool ok;
-    do {
+    for (;;) {
+        if (n > maxcollatz) {
+            fprintf(stderr, "Overflow would occur during Collatz computation.\n");
+            return -max; // return negative max to indicate overflow
+        }
+        n = 3wb * n + 1wb;
         if (n > max) {
             max = n;
         }
-    } while ((ok = collatz(&n)) && n > prev);
-    if (!ok) {
-        return -max; // return negative max to indicate overflow
+        n >>= __builtin_ctzg((unsigned _BitInt(BITSIZE))n);
+        if (n <= prev) {
+            return max;
+        }
     }
-    return max;
+}
+
+// Same as collatzrun() but in native 64-bit arithmetic; returns false if n
+// would grow past maxcollatz64, in which case the caller must fall back to
+// the 128-bit collatzrun().
+bool collatzrun64(uint64_t n, uint64_t *max_out) {
+    uint64_t max = n;
+    uint64_t prev = n - 1;
+    for (;;) {
+        if (n > maxcollatz64) {
+            return false;
+        }
+        n = 3 * n + 1;
+        if (n > max) {
+            max = n;
+        }
+        n >>= __builtin_ctzll(n);
+        if (n <= prev) {
+            *max_out = max;
+            return true;
+        }
+    }
 }
 
 int main(int argc, char *argv[]) {
@@ -118,7 +138,8 @@ int main(int argc, char *argv[]) {
         start++; // make sure we start with an odd number
     }
     if (start < 3wb) {
-        start = 3wb; // Collatz sequence is trivial for 1 and 2 (and would loop with our assumptions).
+        start =
+            3wb; // Collatz sequence is trivial for 1 and 2 (and would loop with our assumptions).
     }
     if (!atoi(argv[2], &end)) {
         fprintf(stderr, "Invalid input: %s\n", argv[2]);
@@ -132,7 +153,12 @@ int main(int argc, char *argv[]) {
     // no point in checking the even numbers,
     // as they will always be smaller than the odd number before them.
     for (_BitInt(BITSIZE) i = start; i <= end; i += 2) {
-        v = collatzrun(i);
+        uint64_t max64;
+        if (i <= (_BitInt(BITSIZE))UINT64_MAX && collatzrun64((uint64_t)i, &max64)) {
+            v = max64;
+        } else {
+            v = collatzrun(i);
+        }
         if (v < 0) {
             print(i);
             printf(": overflow at ");
