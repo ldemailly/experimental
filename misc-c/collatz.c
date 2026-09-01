@@ -64,48 +64,74 @@ void print(_BitInt(BITSIZE) value) {
     fputs(buffer + i + 1, stdout);
 }
 
+constexpr _BitInt(BITSIZE) maxcollatz = ((_BitInt(BITSIZE))((~(unsigned _BitInt(BITSIZE))0) >> 1) -
+                                         1wb) /
+                                        3wb;
+
 bool collatz(_BitInt(BITSIZE) * n) {
-    int sign = (*n < 0) ? -1 : 1;
     if ((*n & 1) == 0) {
         *n /= 2wb;
     } else {
-        *n = 3wb * (*n) + 1wb;
-        // check for overflow: if n was positive, 3*n + 1 should also be positive.
-        int new_sign = (*n < 0) ? -1 : 1;
-        if (new_sign != sign) {
-            fprintf(stderr, "Overflow occurred during Collatz computation.\n");
+        if (*n > maxcollatz) {
+            fprintf(stderr, "Overflow would occur during Collatz computation.\n");
             return false;
         }
+        *n = 3wb * (*n) + 1wb;
     }
     return true;
 }
 
-// Returns the max reached.
+// Returns the max reached. -negative if overflow would occur.
 _BitInt(BITSIZE) collatzrun(_BitInt(BITSIZE) n) {
     _BitInt(BITSIZE) max = n;
+    // as we run everything in sequence, as soon as we dip below previous
+    // value, we're done.
+    _BitInt(BITSIZE) prev = n - 1;
+    bool ok;
     do {
         if (n > max) {
             max = n;
         }
-        // iters++;
-    } while (collatz(&n) && n != 1wb);
+    } while ((ok = collatz(&n)) && n > prev);
+    if (!ok) {
+        return -max; // return negative max to indicate overflow
+    }
     return max;
 }
 
 int main(int argc, char *argv[]) {
-    if (argc != 2) {
-        fprintf(stderr, "Usage: %s value\n", argv[0]);
+    if (argc != 3) {
+        fprintf(stderr, "Usage: %s start end\n", argv[0]);
         return 1;
     }
-    _BitInt(BITSIZE) n, max, v;
-    if (!atoi(argv[1], &n)) {
+    _BitInt(BITSIZE) start, end, max, v;
+    if (!atoi(argv[1], &start)) {
         fprintf(stderr, "Invalid input: %s\n", argv[1]);
         return 1;
     }
+    if (!(start & 1wb)) {
+        start++; // make sure we start with an odd number
+    }
+    if (!atoi(argv[2], &end)) {
+        fprintf(stderr, "Invalid input: %s\n", argv[2]);
+        return 1;
+    }
+    // also make sure we end with an odd number
+    if (!(end & 1wb)) {
+        end++;
+    }
     max = 0;
-    for (_BitInt(BITSIZE) i = 3; i <= n; i++) {
+    // no point in checking the even numbers,
+    // as they will always be smaller than the odd number before them.
+    for (_BitInt(BITSIZE) i = start; i <= end; i += 2) {
         v = collatzrun(i);
-        if (v > max || i == n) {
+        if (v < 0) {
+            print(i);
+            printf(": overflow at ");
+            print(-v);
+            return 1;
+        }
+        if (v > max || i == end || i == start) {
             max = v;
             print(i);
             printf(": ");
