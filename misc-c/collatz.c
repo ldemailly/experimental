@@ -1,7 +1,7 @@
 // Compile with
 // clang -std=c23 -Wall -Wextra -pedantic -Werror -O3  collatz.c -march=native -o collatz
-// See collatz_opt.c for a more optimized version that uses 64bits when possible and is 
-// almost 2x faster.
+// See collatz_opt.c for a more optimized version that uses 64bits when possible and is
+// several times faster (also uses threads now).
 // Note that on apple silicon clang is almost 3.2x faster than gcc 16.2.0 somehow.
 #include <errno.h>
 #include <stdbool.h>
@@ -10,11 +10,14 @@
 
 #define BITSIZE 128
 
-bool atoi(const char *str, _BitInt(BITSIZE) * out_val) {
+typedef _BitInt(BITSIZE) bigint;
+typedef unsigned _BitInt(BITSIZE) ubigint;
+
+bool atoi(const char *str, bigint *out_val) {
     if (str == NULL || *str == '\0')
         return false;
     // to handle -170141183460469231731687303715884105728 correctly.
-    unsigned _BitInt(BITSIZE) value = 0;
+    ubigint value = 0;
     bool is_negative = false;
     if (*str == '-') {
         is_negative = true;
@@ -35,14 +38,14 @@ bool atoi(const char *str, _BitInt(BITSIZE) * out_val) {
         value = (value * 10wb) + (c - '0');
     }
     if (is_negative) {
-        *out_val = (_BitInt(BITSIZE))(-value);
+        *out_val = (bigint)(-value);
     } else {
-        *out_val = (_BitInt(BITSIZE))value;
+        *out_val = (bigint)value;
     }
     return true;
 }
 
-void print(_BitInt(BITSIZE) value) {
+void print(bigint value) {
     // buffer to hold decimal representation of the number based on
     // log of 10 base 2, plus one for sign and one for null terminator
     // 146/485 is slightly above the 0.3010299... of the log10(2).
@@ -56,7 +59,7 @@ void print(_BitInt(BITSIZE) value) {
     int sign = (value < 0wb) ? -1 : 1;
     int n = 0;
     do {
-        if (n > 0 && (n % 3) == 0) {
+        if ((n > 0) && ((n % 3) == 0)) {
             buffer[i--] = '\'';
         }
         buffer[i--] = '0' + sign * (value % 10wb);
@@ -69,11 +72,9 @@ void print(_BitInt(BITSIZE) value) {
     fputs(buffer + i + 1, stdout);
 }
 
-constexpr _BitInt(BITSIZE) maxcollatz = ((_BitInt(BITSIZE))((~(unsigned _BitInt(BITSIZE))0) >> 1) -
-                                         1wb) /
-                                        3wb;
+constexpr bigint maxcollatz = ((bigint)((~(ubigint)0) >> 1) - 1wb) / 3wb;
 
-bool collatz(_BitInt(BITSIZE) * n) {
+bool collatz(bigint *n) {
     if ((*n & 1) == 0) {
         *n /= 2wb;
     } else {
@@ -87,11 +88,11 @@ bool collatz(_BitInt(BITSIZE) * n) {
 }
 
 // Returns the max reached. -negative if overflow would occur.
-_BitInt(BITSIZE) collatzrun(_BitInt(BITSIZE) n) {
-    _BitInt(BITSIZE) max = n;
+bigint collatzrun(bigint n) {
+    bigint max = n;
     // as we run everything in sequence, as soon as we dip below previous
     // value, we're done.
-    _BitInt(BITSIZE) prev = n - 1;
+    bigint prev = n - 1;
     bool ok;
     do {
         if (n > max) {
@@ -109,7 +110,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Usage: %s start end\n", argv[0]);
         return 1;
     }
-    _BitInt(BITSIZE) start, end, max, v;
+    bigint start, end, max, v;
     if (!atoi(argv[1], &start)) {
         fprintf(stderr, "Invalid input: %s\n", argv[1]);
         return 1;
@@ -118,7 +119,8 @@ int main(int argc, char *argv[]) {
         start++; // make sure we start with an odd number
     }
     if (start < 3wb) {
-        start = 3wb; // Collatz sequence is trivial for 1 and 2 (and would loop with our assumptions).
+        // Collatz sequence is trivial for 1 and 2 (and would loop with our assumptions).
+        start = 3wb;
     }
     if (!atoi(argv[2], &end)) {
         fprintf(stderr, "Invalid input: %s\n", argv[2]);
@@ -131,7 +133,7 @@ int main(int argc, char *argv[]) {
     max = 0;
     // no point in checking the even numbers,
     // as they will always be smaller than the odd number before them.
-    for (_BitInt(BITSIZE) i = start; i <= end; i += 2) {
+    for (bigint i = start; i <= end; i += 2) {
         v = collatzrun(i);
         if (v < 0) {
             print(i);
@@ -144,7 +146,7 @@ int main(int argc, char *argv[]) {
             print(i);
             printf(": ");
             print(max);
-            _BitInt(BITSIZE) ratio = (max + i / 2wb) / i;
+            bigint ratio = (max + i / 2wb) / i;
             printf(" (");
             print(ratio);
             printf("x)\n");
